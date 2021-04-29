@@ -5,8 +5,8 @@ Release:	1
 License:	GPL
 URL:		
 Group:		System
-Vendor:		Bildanet
-Distribution:	Octothorpe
+Vendor:		Future
+Distribution:	Future
 Source0:	%{name}-%{version}.tar.bz2
 
 %description
@@ -33,5 +33,5 @@ rm -rf %{buildroot}/*
 %defattr(-,root,root)
 
 %changelog
-*	Sun Jun 28 2015 Niels Terp <nielsterp@comhem.se>
+*	Thu Apr 29 2021 xhaa123 <xhaa123@163.com>
 -	Initial build.	First version
