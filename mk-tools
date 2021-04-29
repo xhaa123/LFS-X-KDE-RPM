@@ -1,23 +1,26 @@
 #!/bin/bash
 #################################################
-#	Title:	mk-			#
-#        Date:	2014-06-18			#
+#	Title:	01-mk-tools			#
+#        Date:	2021-04-29			#
 #     Version:	1.0				#
 #      Author:	baho-utot@columbus.rr.com	#
 #     Options:					#
+# Modified by:	xhaa123@163.com			#
 #################################################
 #[ -z ${PARENT} ]	&& PARENT=/usr/src/Octothorpe
 #[ -z ${LFS} ]		&& LFS=/mnt/lfs
+
 set -o errexit		# exit if error...insurance ;)
 set -o nounset		# exit if variable not initalized
 set +h			# disable hashall
 source config.inc
 source function.inc
 PRGNAME=${0##*/}	# script name minus the path
-chapter-05-04() {
+
+tools_binutils_pass1() {
 	local	_pkgname="binutils"
-	local	_pkgver="2.25"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="2.26.1"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -29,7 +32,7 @@ chapter-05-04() {
 	build "	Change directory: ../build" "pushd ../build" ${_logfile}
 	build "	Configure" "../${_pkgname}-${_pkgver}/configure --prefix=/tools --with-sysroot=${LFS} --with-lib-path=/tools/lib --target=${LFS_TGT} --disable-nls --disable-werror" ${_logfile}
 	build "	Make" "make ${MKFLAGS}" ${_logfile}
-	[ "x86_64" == $(uname -m) ] && build "	Create symlink for amd64" "install -vdm 755 /tools/lib;ln -vfs lib /tools/lib64" ${_logfile}
+	[ "x86_64" == $(uname -m) ] && build "	Create symlink for amd64" "mkdir -v /tools/lib && ln -sv lib /tools/lib64 " ${_logfile}
 	build "	Install" "make install" ${_logfile}
 	build "	Restore directory" "popd " /dev/null
 	build "	Restore directory" "popd " /dev/null
@@ -37,10 +40,9 @@ chapter-05-04() {
 	>  ${_complete}
 	return 0
 }
-
-chapter-05-05() {
+tools_gcc_pass1() {
 	local	_pkgname="gcc"
-	local	_pkgver="4.9.2"
+	local	_pkgver="10.3.0"
 	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	local	_pwd=${PWD}/BUILD
@@ -50,42 +52,41 @@ chapter-05-05() {
 	build "	Change directory: BUILD" "pushd BUILD" ${_logfile}
 	build "	Create work directory" "install -vdm 755 build" ${_logfile}
 	unpack "${PWD}" "${_pkgname}-${_pkgver}"
-	unpack "${PWD}" "mpfr-3.1.2"
-	unpack "${PWD}" "gmp-6.0.0a"
-	unpack "${PWD}" "mpc-1.0.2"
+	unpack "${PWD}" "mpfr-4.1.0"
+	unpack "${PWD}" "gmp-6.2.1"
+	unpack "${PWD}" "mpc-1.2.1"
 	build "	Change directory: ${_pkgname}-${_pkgver}" "pushd ${_pkgname}-${_pkgver}" ${_logfile}
-	build "	Symlinking gmp" " ln -vs ../gmp-6.0.0a  gmp" ${_logfile}
-	build "	Symlinking mpc" " ln -vs ../mpc-1.0.2  mpc" ${_logfile}
-	build "	Symlinking mpfr" "ln -vs ../mpfr-3.1.2 mpfr" ${_logfile}
-for file in \
- $(find gcc/config -name linux64.h -o -name linux.h -o -name sysv4.h)
+	build "	Symlinking gmp" " ln -vs ../gmp-6.2.1  gmp" ${_logfile}
+	build "	Symlinking mpc" " ln -vs ../mpc-1.2.1  mpc" ${_logfile}
+	build "	Symlinking mpfr" "ln -vs ../mpfr-4.1.0 mpfr" ${_logfile}
+	build "	Change the location of GCC's default dynamic linker"
+"for file in gcc/config/{linux,i386/linux{,64}}.h
 do
-	build "	Copying file" "cp -uv $file{,.orig}" ${_logfile}
-	build "	sed" "sed -e 's@/lib\(64\)\?\(32\)\?/ld@/tools&@g' \
-      -e 's@/usr@/tools@g' $file.orig > $file" ${_logfile}
-  echo '
+	cp -uv $file{,.orig}
+	sed -e 's@/lib\(64\)\?\(32\)\?/ld@/tools&@g' \
+		-e 's@/usr@/tools@g' $file.orig > $file
+	echo '
 #undef STANDARD_STARTFILE_PREFIX_1
 #undef STANDARD_STARTFILE_PREFIX_2
-#define STANDARD_STARTFILE_PREFIX_1 "/tools/lib/"
-#define STANDARD_STARTFILE_PREFIX_2 ""' >> $file
-  touch $file.orig
-done	
-	build "	Fix stack protection" "sed -i '/k prot/agcc_cv_libc_provides_ssp=yes' gcc/configure" ${_logfile}
+#define STANDARD_STARTFILE_PREFIX_1 \"/tools/lib/\"
+#define STANDARD_STARTFILE_PREFIX_2 \"\"' >> $file
+	touch $file.orig
+done" ${_logfile}
+	build "	Fix stack protection" "sed -e '/m64=/s/lib64/lib/' -i.orig gcc/config/i386/t-linux64" ${_logfile}
 	build "	Change directory: ../build" "pushd ../build" ${_logfile}
-	build "	Configure" "../${_pkgname}-${_pkgver}/configure --target=${LFS_TGT} --prefix=/tools --with-sysroot=${LFS} --with-newlib --without-headers --with-local-prefix=/tools --with-native-system-header-dir=/tools/include --disable-nls --disable-shared --disable-multilib --disable-decimal-float --disable-threads --disable-libatomic --disable-libgomp --disable-libitm --disable-libquadmath --disable-libsanitizer --disable-libssp --disable-libvtv --disable-libcilkrts --disable-libstdc++-v3 --enable-languages=c,c++" ${_logfile}
+	build "	Configure" "../${_pkgname}-${_pkgver}/configure --target=${LFS_TGT} --prefix=/tools --with-glibc-version=2.11 --with-sysroot=${LFS} --with-newlib --without-headers --with-local-prefix=/tools --with-native-system-header-dir=/tools/include --disable-nls--disable-shared --disable-multilib --disable-decimal-float --disable-threads --disable-libatomic --disable-libgomp --disable-libquadmath --disable-libssp --disable-libvtv --disable-libstdcxx --enable-languages=c,c++" ${_logfile}
 	build "	Make" "make ${MKFLAGS}" ${_logfile}
 	build "	Install" "make install" ${_logfile}
-	build "	Symlinking libgcc_eh.a" 'ln -vs libgcc.a $(${LFS_TGT}-gcc -print-libgcc-file-name | sed "s/libgcc/&_eh/")' ${_logfile}
 	build "	Restore directory" "popd " /dev/null
 	build "	Restore directory" "popd " /dev/null
 	build "	Restore directory" "popd " /dev/null
 	>  ${_complete}
 	return 0
 }
-chapter-05-06() {
+tools_inux_headers() {
 	local	_pkgname="linux"
-	local	_pkgver="4.2.2"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="5.12"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -94,17 +95,19 @@ chapter-05-06() {
 	unpack "${PWD}" "${_pkgname}-${_pkgver}"
 	build "	Change directory: ${_pkgname}-${_pkgver}" "pushd ${_pkgname}-${_pkgver}" ${_logfile}
 	build "	make mrproper" "make mrproper" ${_logfile}
-	build "	make INSTALL_HDR_PATH=dest headers_install" "make INSTALL_HDR_PATH=dest headers_install" ${_logfile}
-	build "	cp -rv dest/include/* /tools/include" "cp -rv dest/include/* /tools/include" ${_logfile}
+	build "	make headers" "make headers" ${_logfile}
+	build "	find usr/include -name '.*' -delete" "find usr/include -name '.*' -delete" ${_logfile}
+	build "	rm usr/include/Makefile" "rm usr/include/Makefile" ${_logfile}
+	build "	cp -rv usr/include/* /tools/include" "cp -rv usr/include/* /tools/include" ${_logfile}
 	build "	Restore directory" "popd " /dev/null
 	build "	Restore directory" "popd " /dev/null
 	>  ${_complete}
 	return 0
 }
-chapter-05-07() {
+tools_glibc() {
 	local	_pkgname="glibc"
-	local	_pkgver="2.21"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="2.33"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -114,22 +117,17 @@ chapter-05-07() {
 	build "	Change directory: ${_pkgname}-${_pkgver}" "pushd ${_pkgname}-${_pkgver}" ${_logfile}
 	build "	Create work directory" "install -vdm 755 ../build" ${_logfile}
 	build "	Change directory: ../build" "pushd ../build" ${_logfile}
-	if [ ! -r /usr/include/rpc/types.h ]; then
-	  su -c 'mkdir -pv /usr/include/rpc'
-	  su -c 'cp -v sunrpc/rpc/*.h /usr/include/rpc'
-	fi
-	build "	Fix regression" "sed -e '/ia32/s/^/1:/' -e '/SSE2/s/^1://' -i  ../glibc-2.21/sysdeps/i386/i686/multiarch/mempcpy_chk.S" ${_logfile}
-	build "	Configure" "../${_pkgname}-${_pkgver}/configure --prefix=/tools --host=${LFS_TGT} --build=$(../glibc-2.21/scripts/config.guess) --disable-profile --enable-kernel=2.6.32 --with-headers=/tools/include libc_cv_forced_unwind=yes libc_cv_ctors_header=yes libc_cv_c_cleanup=yes" ${_logfile}
+	build "	Configure" "../${_pkgname}-${_pkgver}/configure --prefix=/tools --host=${LFS_TGT} --build=$(../scripts/config.guess) --enable-kernel=3.2 --with-headers=/tools/include" ${_logfile}
 	build "	Make" "make ${MKFLAGS}" ${_logfile}
 	build "	Install" "make install" ${_logfile}
 	build "	Restore directory" "popd " /dev/null
 	build "	Restore directory" "popd " /dev/null
 	build "	Restore directory" "popd " /dev/null
 	msg_line "       Checking glibc for sanity: "
-	echo 'main(){}' > dummy.c
+	echo 'int main(){}' > dummy.c
 	${LFS_TGT}-gcc dummy.c
 	retval=$(readelf -l a.out | grep ': /tools')
-	rm dummy.c a.out
+	rm -v dummy.c a.out
 	retval=${retval##*: }	# strip [Requesting program interpreter: 
 	retval=${retval%]}	# strip ]
 	case "${retval}" in
@@ -140,10 +138,10 @@ chapter-05-07() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-08() {
+tools_gcc-libstdc() {
 	local	_pkgname="gcc"
-	local	_pkgver="4.9.2"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="10.2.0"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -153,7 +151,7 @@ chapter-05-08() {
 	build "	Change directory: ${_pkgname}-${_pkgver}" "pushd ${_pkgname}-${_pkgver}" ${_logfile}
 	build "	Create work directory" "install -vdm 755 ../build" ${_logfile}
 	build "	Change directory: ../build" "pushd ../build" ${_logfile}
-	build "	Configure" "../gcc-4.9.2/libstdc++-v3/configure --host=${LFS_TGT} --prefix=/tools --disable-multilib --disable-shared --disable-nls --disable-libstdcxx-threads --disable-libstdcxx-pch --with-gxx-include-dir=/tools/${LFS_TGT}/include/c++/4.9.2" ${_logfile}
+	build "	Configure" "../gcc-10.2.0/libstdc++-v3/configure --host=${LFS_TGT} --prefix=/tools --disable-multilib --disable-nls --disable-libstdcxx-threads --disable-libstdcxx-pch --with-gxx-include-dir=/tools/${LFS_TGT}/include/c++/10.2.0" ${_logfile}
 	build "	Make" "make ${MKFLAGS}" ${_logfile}
 	build "	Install" "make install" ${_logfile}
 	build "	Restore directory" "popd " /dev/null
@@ -162,10 +160,10 @@ chapter-05-08() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-09() {
+tools_binutils_pass2() {
 	local	_pkgname="binutils"
-	local	_pkgver="2.25"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="2.26.1"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -187,9 +185,9 @@ chapter-05-09() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-10() {
+tools_gcc_pass2() {
 	local	_pkgname="gcc"
-	local	_pkgver="4.9.2"
+	local	_pkgver="10.2.0"
 	local	_pwd=${PWD}/BUILD
 	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
@@ -198,15 +196,16 @@ chapter-05-10() {
 	build "	Clean build directory" 'rm -rf BUILD/*' ${_logfile}
 	build "	Change directory: BUILD" "pushd BUILD" ${_logfile}
 	unpack "${PWD}" "${_pkgname}-${_pkgver}"
-	unpack "${PWD}" "mpfr-3.1.2"
-	unpack "${PWD}" "gmp-6.0.0a"
-	unpack "${PWD}" "mpc-1.0.2"
+	unpack "${PWD}" "mpfr-4.1.0"
+	unpack "${PWD}" "gmp-6.2.1"
+	unpack "${PWD}" "mpc-1.2.1"
 	build "	Change directory: ${_pkgname}-${_pkgver}" "pushd ${_pkgname}-${_pkgver}" ${_logfile}
-	build "	Symlinking gmp" " ln -vs ../gmp-6.0.0  gmp" ${_logfile}
-	build "	Symlinking mpc" " ln -vs ../mpc-1.0.2  mpc" ${_logfile}
-	build "	Symlinking mpfr" "ln -vs ../mpfr-3.1.2 mpfr" ${_logfile}
 	build "	Fixing limits" "cat gcc/limitx.h gcc/glimits.h gcc/limity.h > `dirname $($LFS_TGT-gcc -print-libgcc-file-name)`/include-fixed/limits.h" ${_logfile}
-	build "	Fixing headers" 'for file in $(find gcc/config -name linux64.h -o -name linux.h -o -name sysv4.h); do cp -uv $file{,.orig};sed -e "s@/lib\(64\)\?\(32\)\?/ld@/tools&@g" -e "s@/usr@/tools@g" $file.orig > $file;printf "\n%s\n%s\n%s\n%s\n\n" "#undef STANDARD_STARTFILE_PREFIX_1" "#undef STANDARD_STARTFILE_PREFIX_2" "#define STANDARD_STARTFILE_PREFIX_1 \"/tools/lib/\"" "#define STANDARD_STARTFILE_PREFIX_2 \"\" ">> $file;touch $file.orig;done' ${_logfile}
+	build "	Fixing headers" 'for file in gcc/config/{linux,i386/linux{,64}}.h; do cp -uv $file{,.orig};sed -e "s@/lib\(64\)\?\(32\)\?/ld@/tools&@g" -e "s@/usr@/tools@g" $file.orig > $file;printf "\n%s\n%s\n%s\n%s\n\n" "#undef STANDARD_STARTFILE_PREFIX_1" "#undef STANDARD_STARTFILE_PREFIX_2" "#define STANDARD_STARTFILE_PREFIX_1 \"/tools/lib/\"" "#define STANDARD_STARTFILE_PREFIX_2 \"\" ">> $file;touch $file.orig;done' ${_logfile}
+	build "	sed -e '/m64=/s/lib64/lib/'  -i.orig gcc/config/i386/t-linux64" "sed -e '/m64=/s/lib64/lib/'  -i.orig gcc/config/i386/t-linux64" ${_logfile}
+	build "	Symlinking gmp" " ln -vs ../gmp-6.2.1  gmp" ${_logfile}
+	build "	Symlinking mpc" " ln -vs ../mpc-1.2.1  mpc" ${_logfile}
+	build "	Symlinking mpfr" "ln -vs ../mpfr-4.1.0 mpfr" ${_logfile}
 	build "	Create work directory" "install -vdm 755 ../build" ${_logfile}
 	build "	Change directory: ../build" "pushd ../build" ${_logfile}
 	build "	Configure" "CC=${LFS_TGT}-gcc CXX=${LFS_TGT}-g++ AR=${LFS_TGT}-ar RANLIB=${LFS_TGT}-ranlib ../${_pkgname}-${_pkgver}/configure --prefix=/tools --with-local-prefix=/tools --with-native-system-header-dir=/tools/include --enable-languages=c,c++ --disable-libstdcxx-pch --disable-multilib --disable-bootstrap --disable-libgomp" ${_logfile}
@@ -217,8 +216,8 @@ chapter-05-10() {
 	build "	Restore directory" "popd " /dev/null
 	build "	Restore directory" "popd " /dev/null
 	msg_line "	Checking glibc for sanity: "
-	echo 'main(){}' > dummy.c
-	${LFS_TGT}-gcc dummy.c
+	echo 'int main(){}' > dummy.c
+	cc dummy.c
 	retval=$(readelf -l a.out | grep ': /tools')
 	rm dummy.c a.out
 	retval=${retval##*: }	# strip [Requesting program interpreter: 
@@ -231,10 +230,10 @@ chapter-05-10() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-11() {
+tools_tcl() {
 	local	_pkgname="tcl"
-	local	_pkgver="8.6.3"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="8.6.11"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -247,13 +246,14 @@ chapter-05-11() {
 	build "	Install" "make install" ${_logfile}
 	build "	Installing Headers" "make install-private-headers" ${_logfile}
 	build "	chmod -v u+w /tools/lib/libtcl8.6.so" "chmod -v u+w /tools/lib/libtcl8.6.so" ${_logfile}
+	build "	make install-private-headers" "make install-private-headers" ${_logfile}
 	build "	ln -sv tclsh8.6 /tools/bin/tclsh" " ln -sv tclsh8.6 /tools/bin/tclsh" ${_logfile}
 	build "	Restore directory" "popd " /dev/null
 	build "	Restore directory" "popd " /dev/null
 	>  ${_complete}
 	return 0
 }
-chapter-05-12() {
+tools_expect() {
 	local	_pkgname="expect"
 	local	_pkgver="5.45"
 	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
@@ -274,9 +274,9 @@ chapter-05-12() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-13() {
+tools_dejagnu() {
 	local	_pkgname="dejagnu"
-	local	_pkgver="1.5.2"
+	local	_pkgver="1.6.2"
 	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
@@ -293,28 +293,9 @@ chapter-05-13() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-14() {
-	local	_pkgname="check"
-	local	_pkgver="0.9.14"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
-	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
-	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
-	> ${_logfile}
-	build "	Clean build directory" 'rm -rf BUILD/*' ${_logfile}
-	build "	Change directory: BUILD" "pushd BUILD" ${_logfile}
-	unpack "${PWD}" "${_pkgname}-${_pkgver}"
-	build "	Change directory: ${_pkgname}-${_pkgver}" "pushd ${_pkgname}-${_pkgver}" ${_logfile}
-	build "	Configure" "PKG_CONFIG= ./configure --prefix=/tools" ${_logfile}
-	build "	Make" "make ${MKFLAGS}" ${_logfile}
-	build "	Install" "make install" ${_logfile}
-	build "	Restore directory" "popd " /dev/null
-	build "	Restore directory" "popd " /dev/null
-	>  ${_complete}
-	return 0
-}
-chapter-05-15() {
-	local	_pkgname="ncurses"
-	local	_pkgver="5.9"
+tools_m4() {
+	local	_pkgname="m4"
+	local	_pkgver="1.4.18"
 	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
@@ -323,7 +304,9 @@ chapter-05-15() {
 	build "	Change directory: BUILD" "pushd BUILD" ${_logfile}
 	unpack "${PWD}" "${_pkgname}-${_pkgver}"
 	build "	Change directory: ${_pkgname}-${_pkgver}" "pushd ${_pkgname}-${_pkgver}" ${_logfile}
-	build "	Configure" "./configure --prefix=/tools --with-shared --without-debug --without-ada --enable-widec --enable-overwrite" ${_logfile}
+	build "	sed -i 's/IO_ftrylockfile/IO_EOF_SEEN/' lib/*.c" "sed -i 's/IO_ftrylockfile/IO_EOF_SEEN/' lib/*.c" ${_logfile}
+	build "	echo "#define _IO_IN_BACKUP 0x100" >> lib/stdio-impl.h" "echo "#define _IO_IN_BACKUP 0x100" >> lib/stdio-impl.h" ${_logfile}
+	build "	Configure" "PKG_CONFIG= ./configure --prefix=/tools" ${_logfile}
 	build "	Make" "make ${MKFLAGS}" ${_logfile}
 	build "	Install" "make install" ${_logfile}
 	build "	Restore directory" "popd " /dev/null
@@ -331,10 +314,10 @@ chapter-05-15() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-16() {
-	local	_pkgname="bash"
-	local	_pkgver="4.3.30"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+tools_ncurses() {
+	local	_pkgname="ncurses"
+	local	_pkgver="6.2"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -342,8 +325,28 @@ chapter-05-16() {
 	build "	Change directory: BUILD" "pushd BUILD" ${_logfile}
 	unpack "${PWD}" "${_pkgname}-${_pkgver}"
 	build "	Change directory: ${_pkgname}-${_pkgver}" "pushd ${_pkgname}-${_pkgver}" ${_logfile}
-	build "	Patch shellshock" "patch -Np1 -i ../../SOURCES/bash-4.3.30-upstream_fixes-1.patch " ${_logfile}
-	build "	Configure" "./configure --prefix=/tools --without-bash-malloc --with-installed-readline" ${_logfile}
+	build "	sed -i s/mawk// configure" "sed -i s/mawk// configure" ${_logfile}
+	build "	Configure" "../${_pkgname}-${_pkgver}/configure --prefix=/tools --with-shared --without-debug --without-ada --enable-widec --enable-overwrite" ${_logfile}
+	build "	Make" "make ${MKFLAGS}" ${_logfile}
+	build "	Install" "make install" ${_logfile}
+	build "	ln -s libncursesw.so /tools/lib/libncurses.so" "ln -s libncursesw.so /tools/lib/libncurses.so" ${_logfile}
+	build "	Restore directory" "popd " /dev/null
+	build "	Restore directory" "popd " /dev/null
+	>  ${_complete}
+	return 0
+}
+tools_bash() {
+	local	_pkgname="bash"
+	local	_pkgver="5.1"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
+	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
+	> ${_logfile}
+	build "	Clean build directory" 'rm -rf BUILD/*' ${_logfile}
+	build "	Change directory: BUILD" "pushd BUILD" ${_logfile}
+	unpack "${PWD}" "${_pkgname}-${_pkgver}"
+	build "	Change directory: ${_pkgname}-${_pkgver}" "pushd ${_pkgname}-${_pkgver}" ${_logfile}
+	build "	Configure" "./configure --prefix=/tools --without-bash-malloc" ${_logfile}
 	build "	Make" "make ${MKFLAGS}" ${_logfile}
 	build "	Install" "make install" ${_logfile}
 	build "	ln -sv bash /tools/bin/sh" "ln -sv bash /tools/bin/sh" ${_logfile}
@@ -352,10 +355,10 @@ chapter-05-16() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-17() {
-local	_pkgname="bzip2"
-	local	_pkgver="1.0.6"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+tools_bison() {
+local	_pkgname="bison"
+	local	_pkgver="3.7.6"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -363,17 +366,41 @@ local	_pkgname="bzip2"
 	build "	Change directory: BUILD" "pushd BUILD" ${_logfile}
 	unpack "${PWD}" "${_pkgname}-${_pkgver}"
 	build "	Change directory: ${_pkgname}-${_pkgver}" "pushd ${_pkgname}-${_pkgver}" ${_logfile}
-	build "	Make" "make ${MKFLAGS} CFLAGS='-fPIC -O2 -g -pipe'" ${_logfile}
-	build "	Install" "make  PREFIX=/tools install" ${_logfile}
+	build "	Configure" "./configure --prefix=/tools" ${_logfile}
+	build "	Make" "make" ${_logfile}
+	build "	Install" "make install" ${_logfile}
 	build "	Restore directory" "popd " /dev/null
 	build "	Restore directory" "popd " /dev/null
 	>  ${_complete}
 	return 0
 }
-chapter-05-18() {
+tools_bzip2() {
+local	_pkgname="bzip2"
+	local	_pkgver="1.0.8"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
+	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
+	> ${_logfile}
+	build "	Clean build directory" 'rm -rf BUILD/*' ${_logfile}
+	build "	Change directory: BUILD" "pushd BUILD" ${_logfile}
+	unpack "${PWD}" "${_pkgname}-${_pkgver}"
+	build "	Change directory: ${_pkgname}-${_pkgver}" "pushd ${_pkgname}-${_pkgver}" ${_logfile}
+	build "	make -f Makefile-libbz2_so" "make -f Makefile-libbz2_so" ${_logfile}
+	build "	make clean" "make clean" ${_logfile}
+	build "	Make" "make" ${_logfile}
+	build "	Install" "make PREFIX=/tools install" ${_logfile}
+	build "	cp -v bzip2-shared /tools/bin/bzip2" "cp -v bzip2-shared /tools/bin/bzip2" ${_logfile}
+	build "	cp -av libbz2.so* /tools/lib" "cp -av libbz2.so* /tools/lib" ${_logfile}
+	build "	ln -sv libbz2.so.1.0 /tools/lib/libbz2.so" "ln -sv libbz2.so.1.0 /tools/lib/libbz2.so" ${_logfile}
+	build "	Restore directory" "popd " /dev/null
+	build "	Restore directory" "popd " /dev/null
+	>  ${_complete}
+	return 0
+}
+tools_coreutils() {
 	local	_pkgname="coreutils"
-	local	_pkgver="8.23"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="8.32"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -389,10 +416,10 @@ chapter-05-18() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-19() {
+tools_diffutils() {
 	local	_pkgname="diffutils"
-	local	_pkgver="3.3"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="3.7"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -408,10 +435,10 @@ chapter-05-19() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-20() {
+tools_file() {
 	local	_pkgname="file"
-	local	_pkgver="5.22"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="5.40"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -427,10 +454,10 @@ chapter-05-20() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-21() {
+tools_findutils() {
 	local	_pkgname="findutils"
-	local	_pkgver="4.4.2"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="4.8.0"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -446,10 +473,10 @@ chapter-05-21() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-22() {
+tools_gawk() {
 	local	_pkgname="gawk"
-	local	_pkgver="4.1.1"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="5.1.0"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -465,33 +492,29 @@ chapter-05-22() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-23() {
+tools_gettext() {
 	local	_pkgname="gettext"
-	local	_pkgver="0.19.4"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="0.21"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
 	build "	Clean build directory" 'rm -rf BUILD/*' ${_logfile}
 	build "	Change directory: BUILD" "pushd BUILD" ${_logfile}
 	unpack "${PWD}" "${_pkgname}-${_pkgver}"
-	build "	Change directory: ${_pkgname}-${_pkgver}/gettext-tools" "pushd ${_pkgname}-${_pkgver}/gettext-tools" ${_logfile}
-	build "	Configure" "EMACS="no" ./configure --prefix=/tools --disable-shared" ${_logfile}
-	build "	make -C gnulib-lib" "make -C gnulib-lib" ${_logfile}
-	build "	make -C intl pluralx.c" "make -C intl pluralx.c" ${_logfile}
-	build "	make -C src msgfmt" "make -C src msgfmt" ${_logfile}
-	build "	make -C src msgmerge" "make -C src msgmerge" ${_logfile}
-	build "	make -C src xgettext" "make -C src xgettext" ${_logfile}
-	build "	cp -v src/{msgfmt,msgmerge,xgettext} /tools/bin" "cp -v src/{msgfmt,msgmerge,xgettext} /tools/bin" ${_logfile}
+	build "	Change directory: ${_pkgname}-${_pkgver}" "pushd ${_pkgname}-${_pkgver}" ${_logfile}
+	build "	Configure" "./configure --disable-shared" ${_logfile}
+	build "	Make" "make" ${_logfile}
+	build "	Install" "cp -v gettext-tools/src/{msgfmt,msgmerge,xgettext} /tools/bin" ${_logfile}
 	build "	Restore directory" "popd " /dev/null
 	build "	Restore directory" "popd " /dev/null
 	>  ${_complete}
 	return 0
 }
-chapter-05-24() {
+tools_grep() {
 	local	_pkgname="grep"
-	local	_pkgver="2.21"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="3.6"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -507,10 +530,10 @@ chapter-05-24() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-25() {
+tools_gzip() {
 	local	_pkgname="gzip"
-	local	_pkgver="1.6"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="1.10"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -526,29 +549,10 @@ chapter-05-25() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-26() {
-	local	_pkgname="m4"
-	local	_pkgver="1.4.17"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
-	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
-	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
-	> ${_logfile}
-	build "	Clean build directory" 'rm -rf BUILD/*' ${_logfile}
-	build "	Change directory: BUILD" "pushd BUILD" ${_logfile}
-	unpack "${PWD}" "${_pkgname}-${_pkgver}"
-	build "	Change directory: ${_pkgname}-${_pkgver}" "pushd ${_pkgname}-${_pkgver}" ${_logfile}	
-	build "	Configure" "./configure --prefix=/tools" ${_logfile}
-	build "	Make" "make ${MKFLAGS}" ${_logfile}
-	build "	Install" "make install" ${_logfile}
-	build "	Restore directory" "popd " /dev/null
-	build "	Restore directory" "popd " /dev/null
-	>  ${_complete}
-	return 0
-}
-chapter-05-27() {
+tools_make() {
 	local	_pkgname="make"
-	local	_pkgver="4.1"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="4.3"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -564,10 +568,10 @@ chapter-05-27() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-28() {
+tools_patch() {
 	local	_pkgname="patch"
-	local	_pkgver="2.7.4"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="2.7.6"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -583,10 +587,10 @@ chapter-05-28() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-29() {
+tools_perl() {
 	local	_pkgname="perl"
-	local	_pkgver="5.20.2"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="5.32.1"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -596,18 +600,38 @@ chapter-05-29() {
 	build "	Change directory: ${_pkgname}-${_pkgver}" "pushd ${_pkgname}-${_pkgver}" ${_logfile}	
 	build "	Configure" "sh Configure -des -Dprefix=/tools -Dlibs=-lm" ${_logfile}
 	build "	Make" "make ${MKFLAGS}" ${_logfile} 
-	build "	cp -v perl cpan/podlators/pod2man /tools/bin" "cp -v perl cpan/podlators/pod2man /tools/bin" ${_logfile}
-	build "	mkdir -pv /tools/lib/perl5/5.20.2" "mkdir -pv /tools/lib/perl5/5.20.2" ${_logfile}
-	build "	cp -Rv lib/* /tools/lib/perl5/5.20.2" "cp -Rv lib/* /tools/lib/perl5/5.20.2" ${_logfile}
+	build "	cp -v perl cpan/podlators/scripts/pod2man /tools/bin" "cp -v perl cpan/podlators/scripts/pod2man /tools/bin" ${_logfile}
+	build "	mkdir -pv /tools/lib/perl5/5.32.1" "mkdir -pv /tools/lib/perl5/5.32.1" ${_logfile}
+	build "	cp -Rv lib/* /tools/lib/perl5/5.32.1" "cp -Rv lib/* /tools/lib/perl5/5.32.1" ${_logfile}
 	build "	Restore directory" "popd " /dev/null
 	build "	Restore directory" "popd " /dev/null
 	>  ${_complete}
 	return 0
 }
-chapter-05-30() {
+tools_python() {
+	local	_pkgname="Python"
+	local	_pkgver="3.9.4"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
+	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
+	> ${_logfile}
+	build "	Clean build directory" 'rm -rf BUILD/*' ${_logfile}
+	build "	Change directory: BUILD" "pushd BUILD" ${_logfile}
+	unpack "${PWD}" "${_pkgname}-${_pkgver}"
+	build "	Change directory: ${_pkgname}-${_pkgver}" "pushd ${_pkgname}-${_pkgver}" ${_logfile}
+	build "	sed -i '/def add_multiarch_paths/a \        return' setup.py" "sed -i '/def add_multiarch_paths/a \        return' setup.py" ${_logfile}
+	build "	Configure" "./configure --prefix=/tools --without-ensurepip" ${_logfile}
+	build "	Make" "make ${MKFLAGS}" ${_logfile}
+	build "	Install" "make install" ${_logfile}
+	build "	Restore directory" "popd " /dev/null
+	build "	Restore directory" "popd " /dev/null
+	>  ${_complete}
+	return 0
+}
+tools_sed() {
 	local	_pkgname="sed"
-	local	_pkgver="4.2.2"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="4.8"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -623,10 +647,10 @@ chapter-05-30() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-31() {
+tools_tar() {
 	local	_pkgname="tar"
-	local	_pkgver="1.28"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="1.34"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -642,10 +666,10 @@ chapter-05-31() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-32() {
+tools_texinfo() {
 	local	_pkgname="texinfo"
-	local	_pkgver="5.2"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="6.7"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -661,10 +685,10 @@ chapter-05-32() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-33() {
+tools_util_linux() {
 	local	_pkgname="util-linux"
-	local	_pkgver="2.26"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="2.36.2"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -672,7 +696,7 @@ chapter-05-33() {
 	build "	Change directory: BUILD" "pushd BUILD" ${_logfile}
 	unpack "${PWD}" "${_pkgname}-${_pkgver}"
 	build "	Change directory: ${_pkgname}-${_pkgver}" "pushd ${_pkgname}-${_pkgver}" ${_logfile}	
-	build "	Configure" "./configure --prefix=/tools --without-python --disable-makeinstall-chown --without-systemdsystemunitdir  PKG_CONFIG=''" ${_logfile}
+	build "	Configure" "--prefix=/tools --without-python --disable-makeinstall-chown --without-systemdsystemunitdir --without-ncurses PKG_CONFIG=''" ${_logfile}
 	build "	Make" "make ${MKFLAGS}" ${_logfile}
 	build "	Install" "make install" ${_logfile}
 	build "	Restore directory" "popd " /dev/null
@@ -680,10 +704,10 @@ chapter-05-33() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-34() {
+tools_xz() {
 	local	_pkgname="xz"
-	local	_pkgver="5.2.0"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="5.2.5"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -699,19 +723,20 @@ chapter-05-34() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-35() {
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+tools_stripping() {
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
 	build 'strip --strip-debug /tools/lib/*' 'strip --strip-debug /tools/lib/* || true' ${_logfile}
 	build '/usr/bin/strip --strip-unneeded /tools/{,s}bin/*' '/usr/bin/strip --strip-unneeded /tools/{,s}bin/* || true' ${_logfile}
 	build 'rm -rf /tools/{,share}/{info,man,doc}' 'rm -rf /tools/{,share}/{info,man,doc}' ${_logfile}
+	build 'find /tools/{lib,libexec} -name \*.la -delete' 'find /tools/{lib,libexec} -name \*.la -delete' ${_logfile}
 	>  ${_complete}
 	return 0
 }
-chapter-05-36() {
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+tools_changingowner() {
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -722,10 +747,10 @@ chapter-05-36() {
 #
 #	Add rpm to tool chain
 #
-chapter-05-zlib() {
+tools_zlib() {
 	local	_pkgname="zlib"
-	local	_pkgver="1.2.8"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_pkgver="1.2.11"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -741,10 +766,10 @@ chapter-05-zlib() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-nspr() {
+tools_nspr() {
 	local _pkgname="nspr"
-	local _pkgver="4.10.8"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local _pkgver="4.30"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -754,7 +779,7 @@ chapter-05-nspr() {
 	build "	Change directory: ${_pkgname}-${_pkgver}" "pushd ${_pkgname}-${_pkgver}" ${_logfile}
 	cd nspr
 	sed -ri 's#^(RELEASE_BINS =).*#\1#' pr/src/misc/Makefile.in  || die "${FUNCNAME}: sed: FAILURE"
-	sed -i 's#$(LIBRARY) ##' config/rules.mk  || die "${FUNCNAME}: sed: FAILURE"
+	sed -i 's#$(LIBRARY) ##'  config/rules.mk   || die "${FUNCNAME}: sed: FAILURE"
 	build "	Configure" "PKG_CONFIG_PATH="/tools/lib/pkgconfig" ./configure --prefix=/tools --with-mozilla --with-pthreads $([ "$(uname -m)" = "x86_64" ] && echo --enable-64bit)" ${_logfile}
 	build "	Make" "make ${MKFLAGS}" ${_logfile}
 	build "	Install" "make install" ${_logfile}
@@ -763,10 +788,10 @@ chapter-05-nspr() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-nss() {
+tools_nss() {
 	local _pkgname="nss"
-	local _pkgver="3.17.4"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local _pkgver="3.64"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -774,7 +799,7 @@ chapter-05-nss() {
 	build "	Change directory: BUILD" "pushd BUILD" ${_logfile}
 	unpack "${PWD}" "${_pkgname}-${_pkgver}"
 	build "	Change directory: ${_pkgname}-${_pkgver}" "pushd ${_pkgname}-${_pkgver}" ${_logfile}
-	build "	Patch" "patch -Np1 -i ../../SOURCES/nss-3.17.4-standalone-1.patch" ${_logfile}
+	build "	Patch" "patch -Np1 -i ../../SOURCES/nss-3.64-standalone-1.patch" ${_logfile}
 	cd nss
 	build "	Make" "make BUILD_OPT=1 NSPR_INCLUDE_DIR=/tools/include/nspr USE_SYSTEM_ZLIB=1 ZLIB_LIBS=-lz $([ "$(uname -m)" = "x86_64" ] && echo USE_64=1) -j1" ${_logfile}
 	cd ../dist
@@ -792,10 +817,10 @@ chapter-05-nss() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-popt() {
+tools_popt() {
 	local _pkgname="popt"
-	local _pkgver="1.16"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local _pkgver="1.18"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -811,10 +836,10 @@ chapter-05-popt() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-readline() {
+tools_readline() {
 	local _pkgname="readline"
 	local _pkgver="6.3"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -832,10 +857,10 @@ chapter-05-readline() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-elfutils() {
+tools_elfutils() {
 	local _pkgname="elfutils"
 	local _pkgver="0.161"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -851,10 +876,10 @@ chapter-05-elfutils() {
 	>  ${_complete}
 	return 0
 }
-chapter-05-rpm() {
+tools_rpm() {
 	local _pkgname="rpm"
 	local _pkgver="4.11.2"
-      	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
+	local	_complete="${PWD}/LOGS/${FUNCNAME}.completed"
 	local	_logfile="${PWD}/LOGS/${FUNCNAME}.log"
 	[ -e ${_complete} ] && { msg "${FUNCNAME}: SKIPPING";return 0; } || msg "${FUNCNAME}: Building"
 	> ${_logfile}
@@ -884,37 +909,39 @@ msg "Building Chapter 5 Tool chain"
 [ "lfs" != $(whoami) ] && die "	Not lfs user: FAILURE"
 [ -z "${LFS_TGT}" ]  && die "	Environment not set: FAILURE"
 [ ${PATH} = "/tools/bin:/bin:/usr/bin" ] || die "Path not set: FAILURE"
-chapter-05-04	#	5.4.  Binutils-2.24 - Pass 1
-chapter-05-05	#	5.5.  GCC-4.8.2 - Pass 1
-chapter-05-06	#	5.6.  Linux-3.13.3 API Headers
-chapter-05-07	#	5.7.  Glibc-2.19
-chapter-05-08	#	5.8.  Libstdc++-4.8.2
-chapter-05-09	#	5.9.  Binutils-2.24 - Pass 2
-chapter-05-10	#	5.10. GCC-4.8.2 - Pass 2
-chapter-05-11	#	5.11. Tcl-8.6.1
-chapter-05-12	#	5.12. Expect-5.45
-chapter-05-13	#	5.13. DejaGNU-1.5.1
-chapter-05-14	#	5.14. Check-0.9.12
-chapter-05-15	#	5.15. Ncurses-5.9
-chapter-05-16	#	5.16. Bash-4.2
-chapter-05-17	#	5.17. Bzip2-1.0.6
-chapter-05-18	#	5.18. Coreutils-8.22
-chapter-05-19	#	5.19. Diffutils-3.3
-chapter-05-20	#	5.20. File-5.17
-chapter-05-21	#	5.21. Findutils-4.4.2
-chapter-05-22	#	5.22. Gawk-4.1.0
-chapter-05-23	#	5.23. Gettext-0.18.3.2
-chapter-05-24	#	5.24. Grep-2.16
-chapter-05-25	#	5.25. Gzip-1.6
-chapter-05-26	#	5.26. M4-1.4.17
-chapter-05-27	#	5.27. Make-4.0
-chapter-05-28	#	5.28. Patch-2.7.1
-chapter-05-29	#	5.29. Perl-5.18.2
-chapter-05-30	#	5.30. Sed-4.2.2 
-chapter-05-31	#	5.31. Tar-1.27.1
-chapter-05-32	#	5.32. Texinfo-5.2
-chapter-05-33	#	5.33. Util-linux-2.24.1
-chapter-05-34	#	5.34. Xz-5.0.5
+
+chapter-05-04	#	5.4.  Binutils-2.36.1 - Pass 1
+chapter-05-05	#	5.5.  GCC-10.2.0 - Pass 1
+chapter-05-06	#	5.6.  Linux-5.12 API Headers
+chapter-05-07	#	5.7.  Glibc-2.33
+chapter-05-08	#	5.8.  Libstdc++ from GCC-10.2.0
+chapter-05-09	#	5.9.  Binutils-2.36.1 - Pass 2
+chapter-05-10	#	5.10. GCC-10.2.0 - Pass 2
+chapter-05-11	#	5.11. Tcl-8.6.11
+chapter-05-12	#	5.12. Expect-5.45.4
+chapter-05-13	#	5.13. DejaGNU-1.6.2
+chapter-05-14	#	5.14. M4-1.4.18
+chapter-05-15	#	5.15. Ncurses-6.2
+chapter-05-16	#	5.16. Bash-5.1
+chapter-05-17	#	5.17. Bison-3.7.2
+chapter-05-18	#	5.18. Bzip2-1.0.8
+chapter-05-19	#	5.19. Coreutils-8.32
+chapter-05-20	#	5.20. Diffutils-3.7
+chapter-05-21	#	5.21. File-5.39
+chapter-05-22	#	5.22. Findutils-4.7.0
+chapter-05-23	#	5.23. Gawk-5.0.1
+chapter-05-24	#	5.24. Gettext-0.20.1
+chapter-05-25	#	5.25. Grep-3.4
+chapter-05-26	#	5.26. Gzip-1.10
+chapter-05-27	#	5.27. Make-4.3
+chapter-05-28	#	5.28. Patch-2.7.6
+chapter-05-29	#	5.29. Perl-5.30.1
+chapter-05-30	#	5.30. Python-3.9.4
+chapter-05-31	#	5.31. Sed-4.8
+chapter-05-32	#	5.32. Tar-1.32
+chapter-05-33	#	5.33. Texinfo-6.7
+chapter-05-34	#	5.34. Util-linux-2.35.1
+chapter-05-35	#	5.35. Xz-5.2.4
 #	The following packages comprise the package management system RPM
 chapter-05-zlib		#
 chapter-05-nspr		#
